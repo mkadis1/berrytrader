@@ -1,0 +1,30 @@
+{
+  "api_key": "your_key",
+  "api_secret": "your_secret",
+  "symbols": ["BTCUSDT"],
+  "base_investment": 10,
+  "max_dca_levels": 3,
+  "take_profit": 0.02,
+  "trailing_stop": 0.01,
+  "dca_drop_trigger": 0.03,
+  "rsi_period": 14,
+  "rsi_threshold": 30,
+  "base_currency": "USDT",
+  "interval": "1h",
+  "alligator": {
+    "enabled": false,
+    "for_entry": false,
+    "for_exit": false,
+    "jaw_period": 13,
+    "teeth_period": 8,
+    "lips_period": 5
+  },
+  "macd": {
+    "enabled": false,
+    "for_entry": false,
+    "for_exit": false,
+    "fast": 12,
+    "slow": 26,
+    "signal": 9
+  }
+}
