@@ -49,5 +49,7 @@ sudo systemctl enable berrytrader.service
 sudo systemctl start berrytrader.service
 ```
 
-The bot will check for open trades on start using `trades.json` and continue
-managing positions.
+On start the bot synchronises with your Binance account and rebuilds any
+open positions based on balances. It stores its state in `trades.json`
+so trades persist across reboots. Trailing stops and optional Alligator or
+MACD filters can be enabled in `config.json`.

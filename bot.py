@@ -3,7 +3,7 @@ import os
 import time
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
@@ -98,10 +98,46 @@ def compute_rsi(series: pd.Series, period: int) -> float:
     return rsi.iloc[-1]
 
 
+def compute_alligator(series: pd.Series, jaw: int, teeth: int, lips: int) -> Dict[str, float]:
+    jaw_ma = series.rolling(window=jaw).mean().iloc[-1]
+    teeth_ma = series.rolling(window=teeth).mean().iloc[-1]
+    lips_ma = series.rolling(window=lips).mean().iloc[-1]
+    return {"jaw": jaw_ma, "teeth": teeth_ma, "lips": lips_ma}
+
+
+def compute_macd(series: pd.Series, fast: int, slow: int, signal: int) -> Dict[str, float]:
+    ema_fast = series.ewm(span=fast, adjust=False).mean()
+    ema_slow = series.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    return {"macd": macd_line.iloc[-1], "signal": signal_line.iloc[-1]}
+
+
+def sync_trades_with_account(client: Client, config: Config, trades: Dict[str, dict]) -> Dict[str, dict]:
+    account = client.get_account()
+    balances = {b["asset"]: float(b["free"]) + float(b["locked"]) for b in account["balances"]}
+    for symbol in config.symbols:
+        asset = symbol.replace(config.base_currency, "")
+        qty = balances.get(asset, 0)
+        if qty > 0 and symbol not in trades:
+            price = float(client.get_symbol_ticker(symbol=symbol)["price"])
+            trades[symbol] = {
+                "entry_price": price,
+                "quantity": qty,
+                "dca_level": 0,
+                "highest_price": price,
+            }
+        elif qty == 0 and symbol in trades:
+            del trades[symbol]
+    return trades
+
+
 def main():
     config = Config.load("config.json")
     trades = load_trades("trades.json")
     client = Client(config.api_key, config.api_secret)
+    trades = sync_trades_with_account(client, config, trades)
+    save_trades("trades.json", trades)
 
     while True:
         for symbol in config.symbols:
@@ -112,10 +148,36 @@ def main():
                 continue
             closes = pd.Series([float(k[4]) for k in klines])
             rsi = compute_rsi(closes, config.rsi_period)
+            if config.alligator.enabled:
+                alligator = compute_alligator(
+                    closes,
+                    config.alligator.params["jaw_period"],
+                    config.alligator.params["teeth_period"],
+                    config.alligator.params["lips_period"],
+                )
+            else:
+                alligator = None
+            if config.macd.enabled:
+                macd = compute_macd(
+                    closes,
+                    config.macd.params["fast"],
+                    config.macd.params["slow"],
+                    config.macd.params["signal"],
+                )
+            else:
+                macd = None
             trade = trades.get(symbol)
 
+            entry_ok = rsi < config.rsi_threshold
+            if config.alligator.enabled and config.alligator.for_entry and alligator:
+                entry_ok = entry_ok and (
+                    alligator["lips"] > alligator["teeth"] > alligator["jaw"]
+                )
+            if config.macd.enabled and config.macd.for_entry and macd:
+                entry_ok = entry_ok and macd["macd"] > macd["signal"]
+
             if trade is None:
-                if rsi < config.rsi_threshold:
+                if entry_ok:
                     quantity = round(config.base_investment / float(closes.iloc[-1]), 6)
                     # Place order (commented out for demo)
                     # order = client.order_market_buy(symbol=symbol, quantity=quantity)
@@ -125,13 +187,28 @@ def main():
                         "entry_price": order["price"],
                         "quantity": quantity,
                         "dca_level": 0,
+                        "highest_price": order["price"],
                     }
             else:
                 current_price = float(closes.iloc[-1])
                 entry_price = trade["entry_price"]
+                trade["highest_price"] = max(trade.get("highest_price", entry_price), current_price)
+
+                exit_ok = False
                 if current_price >= entry_price * (1 + config.take_profit):
+                    exit_ok = True
+                if config.trailing_stop > 0 and current_price <= trade["highest_price"] * (1 - config.trailing_stop):
+                    exit_ok = True
+                if config.alligator.enabled and config.alligator.for_exit and alligator:
+                    exit_ok = exit_ok or (
+                        alligator["lips"] < alligator["teeth"] < alligator["jaw"]
+                    )
+                if config.macd.enabled and config.macd.for_exit and macd:
+                    exit_ok = exit_ok or macd["macd"] < macd["signal"]
+
+                if exit_ok:
                     # client.order_market_sell(symbol=symbol, quantity=trade['quantity'])
-                    print(f"TAKE PROFIT {symbol} at {current_price}")
+                    print(f"EXIT {symbol} at {current_price}")
                     del trades[symbol]
                 elif (
                     trade["dca_level"] < config.max_dca_levels
@@ -142,6 +219,7 @@ def main():
                     trade["quantity"] += add_qty
                     trade["entry_price"] = (trade["entry_price"] + current_price) / 2
                     trade["dca_level"] += 1
+                    trade["highest_price"] = trade["entry_price"]
                     print(f"DCA BUY {symbol} at {current_price} level {trade['dca_level']}")
         save_trades("trades.json", trades)
         time.sleep(60)
