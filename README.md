@@ -2,6 +2,18 @@
 
 A simple trading bot designed for Raspberry Pi 4 using the Binance API.
 
+## Installation
+
+Clone the repository to your Pi (replace `USERNAME` with your GitHub
+account if you fork the project):
+
+```bash
+git clone https://github.com/USERNAME/berry-trader.git
+cd berry-trader
+```
+
+To update later, run `git pull` in the repository directory.
+
 ## Requirements
 
 - Python 3.9+
