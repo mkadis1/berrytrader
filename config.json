@@ -1,0 +1,15 @@
+{
+  "api_key": "YOUR_API_KEY",
+  "api_secret": "YOUR_API_SECRET",
+  "symbol": "BTCUSDT",
+  "base_investment": 10,
+  "profit_target": 0.04,
+  "trailing_stop": 0.01,
+  "max_dca_levels": 10,
+  "dca_drop_trigger": 0.01,
+  "rsi_period": 21,
+  "rsi_threshold": 50,
+  "fee_rate": 0.001,
+  "initial_balance": 3000,
+  "interval": "1m"
+}
